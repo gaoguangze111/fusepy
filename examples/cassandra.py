@@ -17,6 +17,7 @@ if not hasattr(__builtins__, 'bytes'):
 class Cassandra(LoggingMixIn, Operations):
     'Example memory filesystem. Supports only one level of files.'
 
+
     def __init__(self):
         self.files = {}
         self.data = defaultdict(bytes)
