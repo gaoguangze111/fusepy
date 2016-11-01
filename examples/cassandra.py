@@ -133,11 +133,17 @@ class Cassandra(LoggingMixIn, Operations):
 
         # TODO to update
         self.data[target] = source
+        #cassandra
+        self.col_fam.insert(target, {"content": self.data[target]})
+        self.col_fam.insert("files", {"metadata": json.dumps(self.files)})
 
     def truncate(self, path, length, fh=None):
         # TODO truncate the file on Cassandra
         self.data[path] = self.data[path][:length]
         self.files[path]['st_size'] = length
+        #cassandra
+        self.col_fam.insert(path, {"content": self.data[path]})
+        self.col_fam.insert("files", {"metadata": json.dumps(self.files)})
 
     def unlink(self, path):
         self.files.pop(path)
@@ -154,7 +160,6 @@ class Cassandra(LoggingMixIn, Operations):
         self.files[path]['st_size'] = len(self.data[path])
         #cassandra
         self.col_fam.insert(path, {"content": self.data[path]})
-
         self.col_fam.insert("files", {"metadata": json.dumps(self.files)})
         return len(data)
 
