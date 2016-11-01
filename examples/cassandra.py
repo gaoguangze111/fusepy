@@ -3,6 +3,11 @@ from __future__ import print_function, absolute_import, division
 
 import logging
 
+#cassandra API
+import pycassa
+#persistent files (metadata) 
+import json
+
 from collections import defaultdict
 from errno import ENOENT
 from stat import S_IFDIR, S_IFLNK, S_IFREG
@@ -25,6 +30,14 @@ class Cassandra(LoggingMixIn, Operations):
         now = time()
         self.files['/'] = dict(st_mode=(S_IFDIR | 0o755), st_ctime=now,
                                st_mtime=now, st_atime=now, st_nlink=2)
+        #initialize cassandra
+        self.pool = pycassa.pool.ConnectionPool('Keyspace1')
+        self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'ColumnFamily1')
+        try:
+        	files_json = self.col_fam.get('files', columns=['metadata'])['metadata']
+        	self.files = json.loads(files_json)
+        except:
+        	self.files = {}
 
     def chmod(self, path, mode):
         self.files[path]['st_mode'] &= 0o770000
@@ -76,6 +89,8 @@ class Cassandra(LoggingMixIn, Operations):
         # TODO
         # read from cassandra in an array
         # return (part of) array 
+        file=self.col_fam.get(path, columns=["content"])
+        self.data[path] = file["content"]
         return self.data[path][offset:offset + size]
 
     def readdir(self, path, fh):
@@ -84,7 +99,9 @@ class Cassandra(LoggingMixIn, Operations):
     def readlink(self, path):
         # TODO
         # read from cassandra in an array
-        # return (part of) array         
+        # return (part of) array
+        file=self.col_fam.get(path, columns=["content"])
+        self.data[path] = file["content"]
         return self.data[path]
 
     def removexattr(self, path, name):
@@ -135,6 +152,10 @@ class Cassandra(LoggingMixIn, Operations):
         # TODO write the file on Cassandra
         self.data[path] = self.data[path][:offset] + data
         self.files[path]['st_size'] = len(self.data[path])
+        #cassandra
+        self.col_fam.insert(path, {"content": self.data[path]})
+
+        self.col_fam.insert("files", {"metadata": json.dumps(self.files)})
         return len(data)
 
 
