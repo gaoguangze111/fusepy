@@ -28,8 +28,7 @@ class Cassandra(LoggingMixIn, Operations):
         self.data = defaultdict(bytes)
         self.fd = 0
         now = time()
-        self.files['/'] = dict(st_mode=(S_IFDIR | 0o755), st_ctime=now,
-                               st_mtime=now, st_atime=now, st_nlink=2)
+
         #initialize cassandra
         self.pool = pycassa.pool.ConnectionPool('Keyspace1')
         self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'ColumnFamily1')
@@ -37,7 +36,8 @@ class Cassandra(LoggingMixIn, Operations):
         	files_json = self.col_fam.get('files', columns=['metadata'])['metadata']
         	self.files = json.loads(files_json)
         except:
-        	self.files = {}
+        	#self.files = {}
+        	self.files['/'] = dict(st_mode=(S_IFDIR | 0o755), st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
 
     def chmod(self, path, mode):
         self.files[path]['st_mode'] &= 0o770000
