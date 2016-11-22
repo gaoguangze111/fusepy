@@ -88,10 +88,84 @@ class Cassandra(LoggingMixIn, Operations):
     def read(self, path, size, offset, fh):
         # TODO
         # read from cassandra in an array
-        # return (part of) array 
-        file=self.col_fam.get(path, columns=["content"])
-        self.data[path] = file["content"]
-        return self.data[path][offset:offset + size]
+        # return (part of) array
+		'''
+        sizeBlock = 4 # look at read!!
+        nbBlock = offset // sizeBlock
+        nbNewBlocks = size // sizeBlock + 1
+
+        if(offset%sizeBlock == 0):
+        	i = 0
+        	result = ""
+        	while(i<nbNewBlocks):
+        		result = result + self.col_fam.get(path, columns=[str(i+nbBlock)])[str(i+nbBlock)]
+        		i= i+1
+        	rest = size % sizeBlock 
+        	result = result + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)][:rest]
+        else:
+        	result = ""
+        	result = result + self.col_fam.get(path, columns = [str(nbBlock)])[str(nbBlock)][(offset%sizeBlock):]
+        	i = 1
+        	while(i<nbNewBlocks):
+        		result = result + self.col_fam.get(path, columns=[str(i+nbBlock)])[str(i+nbBlock)]
+        		i=i+1
+        	rest = size % sizeBlock 
+        	result = result + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)][:rest]
+		'''
+		size = self.files[path]["st_size"]
+		sizeBlock = 4 
+		nbBlock = offset // sizeBlock
+		lenData = size
+		rest = sizeBlock - offset % sizeBlock
+		if (rest == sizeBlock):
+			rest = 0
+
+		nbNewBlocks = (lenData-rest)//sizeBlock
+		print("####################")
+		print("size = "+str(size))
+		print("rest = "+str(rest))
+		print("nbNewBlocks"+str(nbNewBlocks))
+		print("####################")
+
+
+
+
+
+
+
+
+
+
+		if(rest == 0):
+			i = 0
+			result2 = ""
+			while(i < nbNewBlocks):
+				print("********************** i="+ str(i)+"**nbNewBloc="+str(nbNewBlocks)+"***** sum ="+str(i+nbBlock))
+				result2 = result2 + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)]
+				#result2 = result2 + self.col_fam.get(path, columns = ["1"])["1"]
+				i = i+1
+			if(lenData > nbNewBlocks * sizeBlock):
+				result2 = result2 + self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock)])[str(nbNewBlocks+nbBlock)]
+		else:
+			tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+			result2 = tmp[-rest:]
+			i = 0
+			while(i < nbNewBlocks):
+				result2 = result2 + self.col_fam.get(path, columns = [str(i+nbBlock+1)])[str(i+nbBlock+1)]
+				i = i+1
+			if(lenData > rest + nbNewBlocks*sizeBlock):
+				result2 = result2 + self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock+1)])[str(nbNewBlocks+nbBlock+1)]
+		                
+
+
+
+
+
+
+        #file=self.col_fam.get(path, columns=["content"])
+        #self.data[path] = file["content"]
+        #return self.data[path][offset:offset + size]
+		return result2
 
     def readdir(self, path, fh):
         return ['.', '..'] + [x[1:] for x in self.files if x != '/']
@@ -158,8 +232,67 @@ class Cassandra(LoggingMixIn, Operations):
         # TODO write the file on Cassandra
         self.data[path] = self.data[path][:offset] + data
         self.files[path]['st_size'] = len(self.data[path])
+
+        #block
+        '''
+
+        '''
+        '''
+        sizeBlock = 4  # 
+        nbBlock = offset // sizeBlock
+        lenData = len(data)
+        rest = (nbBlock+1) * sizeBlock - offset
+
+        nbNewBlocks = (lenData-rest)//sizeBlock
+
+        if(rest == sizeBlock or rest == 0):
+        	i = 0
+        	while(i < nbNewBlocks):
+        		self.col_fam.insert(path, {str(i+nbBlock): data[(i*sizeBlock):((i+1)*sizeBlock)]})
+        		i = i+1
+        	if(len(data) > i*sizeBlock):
+        		self.col_fam.insert(path, {str(i+nbBlock): data[(i*sizeBlock):]})
+        else:
+        	tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+        	self.col_fam.insert(path, {str(nbBlock): tmp+data[:rest]})
+        	i = 0
+        	while(i < nbNewBlocks & len(data) >= rest+(i+1)*sizeBlock):
+        		self.col_fam.insert(path, {str(i+nbBlock): data[(rest+i*sizeBlock):(rest+ (i+1)*sizeBlock)]})
+        		i = i+1
+        	if(len(data) >= rest + i*sizeBlock):
+        		self.col_fam.insert(path, {str(i+nbBlock): data[(rest+i*sizeBlock):]})
+		'''
+
+        sizeBlock = 4  # 
+        nbBlock = offset // sizeBlock
+        lenData = len(data)
+        rest = sizeBlock - offset % sizeBlock
+        if (rest == sizeBlock):
+        	rest = 0
+
+        nbNewBlocks = (lenData-rest)//sizeBlock
+
+        if(rest == 0):
+        	i = 0
+        	while(i < nbNewBlocks):
+        		self.col_fam.insert(path, {str(i+nbBlock): data[(i*sizeBlock):((i+1)*sizeBlock)]})
+        		i = i+1
+        	if(lenData > nbNewBlocks * sizeBlock):
+        		self.col_fam.insert(path, {str(nbNewBlocks+nbBlock): data[(nbNewBlocks*sizeBlock):]})
+        else:
+        	tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+        	self.col_fam.insert(path, {str(nbBlock): tmp+data[:rest]})
+        	i = 0
+        	while(i < nbNewBlocks):
+        		self.col_fam.insert(path, {str(i+nbBlock+1): data[(rest+i*sizeBlock):(rest+ (i+1)*sizeBlock)]})
+        		i = i+1
+        	if(lenData > rest + nbNewBlocks*sizeBlock):
+        		self.col_fam.insert(path, {str(nbNewBlocks+nbBlock+1): data[(rest+nbNewBlocks*sizeBlock):]})
+                
+
+
         #cassandra
-        self.col_fam.insert(path, {"content": self.data[path]})
+        #self.col_fam.insert(path, {"content": self.data[path]})
         self.col_fam.insert("files", {"metadata": json.dumps(self.files)})
         return len(data)
 
