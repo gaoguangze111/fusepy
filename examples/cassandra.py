@@ -30,8 +30,8 @@ class Cassandra(LoggingMixIn, Operations):
         now = time()
 
         #initialize cassandra
-        self.pool = pycassa.pool.ConnectionPool('Keyspace1')
-        self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'ColumnFamily1')
+        self.pool = pycassa.pool.ConnectionPool('tutorialspoint', server_list=['157.159.15.220:9160'])
+        self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'emp')
         try:
         	files_json = self.col_fam.get('files', columns=['metadata'])['metadata']
         	self.files = json.loads(files_json)
@@ -113,7 +113,7 @@ class Cassandra(LoggingMixIn, Operations):
         	result = result + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)][:rest]
 		'''
 		size = self.files[path]["st_size"]
-		sizeBlock = 4 
+		sizeBlock = 1*1024*1024
 		nbBlock = offset // sizeBlock
 		lenData = size
 		rest = sizeBlock - offset % sizeBlock
@@ -263,7 +263,7 @@ class Cassandra(LoggingMixIn, Operations):
         		self.col_fam.insert(path, {str(i+nbBlock): data[(rest+i*sizeBlock):]})
 		'''
 
-        sizeBlock = 4  # 
+        sizeBlock = 1*1024*1024 
         nbBlock = offset // sizeBlock
         lenData = len(data)
         rest = sizeBlock - offset % sizeBlock
