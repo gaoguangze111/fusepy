@@ -30,7 +30,7 @@ class Cassandra(LoggingMixIn, Operations):
         now = time()
 
         #initialize cassandra
-        self.pool = pycassa.pool.ConnectionPool('Keyspace1')
+        self.pool = pycassa.pool.ConnectionPool('keyspace1')
         self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'ColumnFamily1')
         try:
         	files_json = self.col_fam.get('files', columns=['metadata'])['metadata']
