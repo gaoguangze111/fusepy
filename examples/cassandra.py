@@ -30,8 +30,10 @@ class Cassandra(LoggingMixIn, Operations):
         now = time()
 
         #initialize cassandra
+
         self.pool = pycassa.pool.ConnectionPool('Keyspace1')
         self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'Standard1')
+
         try:
         	files_json = self.col_fam.get('files', columns=['metadata'])['metadata']
         	self.files = json.loads(files_json)
@@ -113,7 +115,9 @@ class Cassandra(LoggingMixIn, Operations):
         	result = result + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)][:rest]
 		'''
 		size = self.files[path]["st_size"]
+
 		sizeBlock = 1*1024*1024 
+
 		nbBlock = offset // sizeBlock
 		lenData = size
 		rest = sizeBlock - offset % sizeBlock
@@ -237,7 +241,39 @@ class Cassandra(LoggingMixIn, Operations):
         self.data[path] = self.data[path][:offset] + data
         self.files[path]['st_size'] = len(self.data[path])
 
+
         sizeBlock = 1*1024*1024   # 
+
+        #block
+        '''
+
+        '''
+        '''
+        sizeBlock = 4  # 
+        nbBlock = offset // sizeBlock
+        lenData = len(data)
+        rest = (nbBlock+1) * sizeBlock - offset
+
+        nbNewBlocks = (lenData-rest)//sizeBlock
+
+        if(rest == sizeBlock or rest == 0):
+        	i = 0
+        	while(i < nbNewBlocks):
+        		self.col_fam.insert(path, {str(i+nbBlock): data[(i*sizeBlock):((i+1)*sizeBlock)]})
+        		i = i+1
+        	if(len(data) > i*sizeBlock):
+        		self.col_fam.insert(path, {str(i+nbBlock): data[(i*sizeBlock):]})
+        else:
+        	tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+        	self.col_fam.insert(path, {str(nbBlock): tmp+data[:rest]})
+        	i = 0
+        	while(i < nbNewBlocks & len(data) >= rest+(i+1)*sizeBlock):
+        		self.col_fam.insert(path, {str(i+nbBlock): data[(rest+i*sizeBlock):(rest+ (i+1)*sizeBlock)]})
+        		i = i+1
+        	if(len(data) >= rest + i*sizeBlock):
+        		self.col_fam.insert(path, {str(i+nbBlock): data[(rest+i*sizeBlock):]})
+		'''
+
         nbBlock = offset // sizeBlock
         lenData = len(data)
         rest = sizeBlock - offset % sizeBlock
