@@ -3,10 +3,14 @@ from __future__ import print_function, absolute_import, division
 
 import logging
 
+#HashCode Library
+import mmh3
+
 #cassandra API
 import pycassa
 #persistent files (metadata) 
 import json
+import mmh3
 
 from collections import defaultdict
 from errno import ENOENT
@@ -30,7 +34,7 @@ class Cassandra(LoggingMixIn, Operations):
         now = time()
 
         #initialize cassandra
-        self.pool = pycassa.pool.ConnectionPool('keyspace1')
+        self.pool = pycassa.pool.ConnectionPool('Keyspace1')
         self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'ColumnFamily1')
         try:
         	files_json = self.col_fam.get('files', columns=['metadata'])['metadata']
@@ -89,73 +93,74 @@ class Cassandra(LoggingMixIn, Operations):
         # TODO
         # read from cassandra in an array
         # return (part of) array
-		'''
+        '''
         sizeBlock = 4 # look at read!!
         nbBlock = offset // sizeBlock
         nbNewBlocks = size // sizeBlock + 1
 
         if(offset%sizeBlock == 0):
-        	i = 0
-        	result = ""
-        	while(i<nbNewBlocks):
-        		result = result + self.col_fam.get(path, columns=[str(i+nbBlock)])[str(i+nbBlock)]
-        		i= i+1
-        	rest = size % sizeBlock 
-        	result = result + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)][:rest]
+            i = 0
+            result = ""
+            while(i<nbNewBlocks):
+                result = result + self.col_fam.get(path, columns=[str(i+nbBlock)])[str(i+nbBlock)]
+                i= i+1
+            rest = size % sizeBlock 
+            result = result + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)][:rest]
         else:
-        	result = ""
-        	result = result + self.col_fam.get(path, columns = [str(nbBlock)])[str(nbBlock)][(offset%sizeBlock):]
-        	i = 1
-        	while(i<nbNewBlocks):
-        		result = result + self.col_fam.get(path, columns=[str(i+nbBlock)])[str(i+nbBlock)]
-        		i=i+1
-        	rest = size % sizeBlock 
-        	result = result + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)][:rest]
-		'''
-		size = self.files[path]["st_size"]
-		sizeBlock = 4 
-		nbBlock = offset // sizeBlock
-		lenData = size
-		rest = sizeBlock - offset % sizeBlock
-		if (rest == sizeBlock):
-			rest = 0
+            result = ""
+            result = result + self.col_fam.get(path, columns = [str(nbBlock)])[str(nbBlock)][(offset%sizeBlock):]
+            i = 1
+            while(i<nbNewBlocks):
+                result = result + self.col_fam.get(path, columns=[str(i+nbBlock)])[str(i+nbBlock)]
+                i=i+1
+            rest = size % sizeBlock 
+            result = result + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)][:rest]
+        '''
+        size = self.files[path]["st_size"]
+        sizeBlock = 4 
+        nbBlock = offset // sizeBlock
+        lenData = size
+        rest = sizeBlock - offset % sizeBlock
+        if (rest == sizeBlock):
+            rest = 0
 
-		nbNewBlocks = (lenData-rest)//sizeBlock
-		print("####################")
-		print("size = "+str(size))
-		print("rest = "+str(rest))
-		print("nbNewBlocks"+str(nbNewBlocks))
-		print("####################")
-
-
+        nbNewBlocks = (lenData-rest)//sizeBlock
+        print("####################")
+        print("size = "+str(size))
+        print("rest = "+str(rest))
+        print("nbNewBlocks"+str(nbNewBlocks))
+        print("####################")
 
 
 
+        if(rest == 0):
+            i = 0
+            result2 = ""
+            while(i < nbNewBlocks):
+                #Get the hashcode ----> get the content with hashcode!!
+                print("********************** i="+ str(i)+"**nbNewBloc="+str(nbNewBlocks)+"***** sum ="+str(i+nbBlock))
+                block_hash = self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)]
+                result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
+                print("############ result2 = "+ result2 + "Block_hash= "+ block_hash);
+                #result2 = result2 + self.col_fam.get(path, columns = ["1"])["1"]
+                i = i+1
+            if(lenData > nbNewBlocks * sizeBlock):
+                block_hash = self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock)])[str(nbNewBlocks+nbBlock)]
+                result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
+        else:
 
-
-
-
-
-		if(rest == 0):
-			i = 0
-			result2 = ""
-			while(i < nbNewBlocks):
-				print("********************** i="+ str(i)+"**nbNewBloc="+str(nbNewBlocks)+"***** sum ="+str(i+nbBlock))
-				result2 = result2 + self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)]
-				#result2 = result2 + self.col_fam.get(path, columns = ["1"])["1"]
-				i = i+1
-			if(lenData > nbNewBlocks * sizeBlock):
-				result2 = result2 + self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock)])[str(nbNewBlocks+nbBlock)]
-		else:
-			tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
-			result2 = tmp[-rest:]
-			i = 0
-			while(i < nbNewBlocks):
-				result2 = result2 + self.col_fam.get(path, columns = [str(i+nbBlock+1)])[str(i+nbBlock+1)]
-				i = i+1
-			if(lenData > rest + nbNewBlocks*sizeBlock):
-				result2 = result2 + self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock+1)])[str(nbNewBlocks+nbBlock+1)]
-		                
+            block_hash = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+            tmp = self.col_fam.get(block_hash, columns = ["content"])["content"]
+            result2 = tmp[-rest:]
+            i = 0
+            while(i < nbNewBlocks):
+                block_hash = self.col_fam.get(path, columns = [str(i+nbBlock+1)])[str(i+nbBlock+1)]
+                result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
+                i = i+1
+            if(lenData > rest + nbNewBlocks*sizeBlock):
+                block_hash = self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock+1)])[str(nbNewBlocks+nbBlock+1)]
+                result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
+                        
 
 
 
@@ -165,7 +170,7 @@ class Cassandra(LoggingMixIn, Operations):
         #file=self.col_fam.get(path, columns=["content"])
         #self.data[path] = file["content"]
         #return self.data[path][offset:offset + size]
-		return result2
+        return result2
 
     def readdir(self, path, fh):
         return ['.', '..'] + [x[1:] for x in self.files if x != '/']
@@ -233,62 +238,59 @@ class Cassandra(LoggingMixIn, Operations):
         self.data[path] = self.data[path][:offset] + data
         self.files[path]['st_size'] = len(self.data[path])
 
-        #block
-        '''
 
-        '''
-        '''
-        sizeBlock = 4  # 
-        nbBlock = offset // sizeBlock
-        lenData = len(data)
-        rest = (nbBlock+1) * sizeBlock - offset
+        #Define the size of Block
+        sizeBlock = 4   
 
-        nbNewBlocks = (lenData-rest)//sizeBlock
-
-        if(rest == sizeBlock or rest == 0):
-        	i = 0
-        	while(i < nbNewBlocks):
-        		self.col_fam.insert(path, {str(i+nbBlock): data[(i*sizeBlock):((i+1)*sizeBlock)]})
-        		i = i+1
-        	if(len(data) > i*sizeBlock):
-        		self.col_fam.insert(path, {str(i+nbBlock): data[(i*sizeBlock):]})
-        else:
-        	tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
-        	self.col_fam.insert(path, {str(nbBlock): tmp+data[:rest]})
-        	i = 0
-        	while(i < nbNewBlocks & len(data) >= rest+(i+1)*sizeBlock):
-        		self.col_fam.insert(path, {str(i+nbBlock): data[(rest+i*sizeBlock):(rest+ (i+1)*sizeBlock)]})
-        		i = i+1
-        	if(len(data) >= rest + i*sizeBlock):
-        		self.col_fam.insert(path, {str(i+nbBlock): data[(rest+i*sizeBlock):]})
-		'''
-
-        sizeBlock = 4  # 
+        #Get which block to write
         nbBlock = offset // sizeBlock
         lenData = len(data)
         rest = sizeBlock - offset % sizeBlock
         if (rest == sizeBlock):
         	rest = 0
-
+        #Get how many blokcs needed to insert    
         nbNewBlocks = (lenData-rest)//sizeBlock
 
-        if(rest == 0):
-        	i = 0
-        	while(i < nbNewBlocks):
-        		self.col_fam.insert(path, {str(i+nbBlock): data[(i*sizeBlock):((i+1)*sizeBlock)]})
-        		i = i+1
-        	if(lenData > nbNewBlocks * sizeBlock):
-        		self.col_fam.insert(path, {str(nbNewBlocks+nbBlock): data[(nbNewBlocks*sizeBlock):]})
-        else:
-        	tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
-        	self.col_fam.insert(path, {str(nbBlock): tmp+data[:rest]})
-        	i = 0
-        	while(i < nbNewBlocks):
-        		self.col_fam.insert(path, {str(i+nbBlock+1): data[(rest+i*sizeBlock):(rest+ (i+1)*sizeBlock)]})
-        		i = i+1
-        	if(lenData > rest + nbNewBlocks*sizeBlock):
-        		self.col_fam.insert(path, {str(nbNewBlocks+nbBlock+1): data[(rest+nbNewBlocks*sizeBlock):]})
+        if(rest == 0):  
+        # Get the block---> Generate the HashCode--->Save HashCode---->Save content
+            i = 0
+            while(i < nbNewBlocks): 
+                block_hash = mmh3.hash(data[(i*sizeBlock):((i+1)*sizeBlock)]) 
+                self.col_fam.insert(path, {str(i+nbBlock): str(block_hash)})
+                self.col_fam.insert(str(block_hash), {"content": data[(i*sizeBlock):((i+1)*sizeBlock)]})
+                print("Write### HashCode"+ str(block_hash))
+                i = i+1
+
+            if(lenData > nbNewBlocks * sizeBlock): #examine if need to insert a half block
+                block_hash = mmh3.hash(data[(nbNewBlocks*sizeBlock):])
+                self.col_fam.insert(path, {str(nbNewBlocks+nbBlock): str(block_hash)})
+                self.col_fam.insert(str(block_hash), {"content": data[(nbNewBlocks*sizeBlock):]})
+                print("Write### HashCode"+ str(block_hash))
+
+        else:   #when block is "old"
+            tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+            block_hash = mmh3.hash(tmp+data[:rest])
+            self.col_fam.insert(path, {str(nbBlock): str(block_hash)})
+            self.col_fam.insert(str(block_hash), {"content": tmp+data[:rest]})
+            print("Write### HashCode"+ str(block_hash))
+
+
+            i = 0
+            while(i < nbNewBlocks):
+                block_hash = mmh3.hash(data[(rest+i*sizeBlock):(rest+ (i+1)*sizeBlock)])
+                self.col_fam.insert(path, {str(i+nbBlock+1): str(block_hash)})
+                self.col_fam.insert(str(block_hash), {"content": data[(rest+i*sizeBlock):(rest+ (i+1)*sizeBlock)]})
+                print("Write### HashCode"+ str(block_hash))
+
+                i = i+1
+            if(lenData > rest + nbNewBlocks*sizeBlock):
+                block_hash = mmh3.hash(data[(rest+nbNewBlocks*sizeBlock):])
+                self.col_fam.insert(path, {str(nbNewBlocks+nbBlock+1): str(block_hash)})
+                self.col_fam.insert(str(block_hash), {"content": data[(rest+nbNewBlocks*sizeBlock):]})
+                print("Write### HashCode"+ str(block_hash))
                 
+
+
 
 
         #cassandra
