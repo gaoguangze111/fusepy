@@ -314,7 +314,7 @@ class Cassandra(LoggingMixIn, Operations):
             if(lenData > rest + nbNewBlocks*sizeBlock):
                 block_hash = mmh3.hash64(data[(rest+nbNewBlocks*sizeBlock):])
                 #self.col_fam.insert(path, {str(nbNewBlocks+nbBlock+1): str(block_hash)})
-                nodeCache[str[nbNewBlocks]] = str(block_hash)
+                nodeCache[str(nbNewBlocks+nbBlock+1)] = str(block_hash)
                 self.col_fam.insert(str(block_hash), {"content": data[(rest+nbNewBlocks*sizeBlock):]})
                 #print("Write### HashCode"+ str(block_hash))
                 
