@@ -22,6 +22,7 @@ from stat import S_IFDIR, S_IFLNK, S_IFREG
 from sys import argv, exit
 from time import time
 
+
 from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 
 if not hasattr(__builtins__, 'bytes'):
@@ -41,11 +42,11 @@ class Cassandra(LoggingMixIn, Operations):
         self.pool = pycassa.pool.ConnectionPool('Keyspace1')
         self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'ColumnFamily1')
         try:
-        	files_json = self.col_fam.get('files', columns=['metadata'])['metadata']
-        	self.files = json.loads(files_json)
+            files_json = self.col_fam.get('files', columns=['metadata'])['metadata']
+            self.files = json.loads(files_json)
         except:
-        	#self.files = {}
-        	self.files['/'] = dict(st_mode=(S_IFDIR | 0o755), st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
+            #self.files = {}
+            self.files['/'] = dict(st_mode=(S_IFDIR | 0o755), st_ctime=now, st_mtime=now, st_atime=now, st_nlink=2)
 
     def chmod(self, path, mode):
         self.files[path]['st_mode'] &= 0o770000
@@ -115,16 +116,7 @@ class Cassandra(LoggingMixIn, Operations):
         pool = ProcessPoolExecutor(4)
         
         #fileData
-        fileData={}
-        try:
-            node_json = self.col_fam.get(path, columns=['node'])['node']
-            fileData = json.loads(node_json)
-        except:
-            fileData = {}
-
-
-
-
+        fileData = self.col_fam.get(path)
 
         if(rest == 0):
             i = 0
@@ -249,9 +241,10 @@ class Cassandra(LoggingMixIn, Operations):
 
         #print("#### offset: "+ str(offset))
         # TODO write the file on Cassandra
-        self.data[path] = self.data[path][:offset] + data
-        self.files[path]['st_size'] = len(self.data[path])
+        #self.data[path] = self.data[path][:offset] + data
 
+        #self.files[path]['st_size'] = len(self.data[path])
+        self.files[path]['st_size'] = offset + len(data)
 
         #Define the size of Block
         sizeBlock = self.sizeBlock
@@ -261,68 +254,57 @@ class Cassandra(LoggingMixIn, Operations):
         lenData = len(data)
         rest = sizeBlock - offset % sizeBlock
         if (rest == sizeBlock):
-        	rest = 0
+            rest = 0
         #Get how many blokcs needed to insert    
         nbNewBlocks = (lenData-rest)//sizeBlock
-
-        #Define the hashNode cache:
-        nodeCache={}
-        try:
-            node_json = self.col_fam.get(path, columns=['node'])['node']
-            nodeCache = json.loads(node_json)
-        except:
-            nodeCache = {}
-
 
         #multithread pool
         pool = ProcessPoolExecutor(4)
         futures = []
+
+        start = time();
         if(rest == 0):  
         # Get the block---> Generate the HashCode--->Save HashCode---->Save content
             i = 0
             while(i < nbNewBlocks):          #paralle
                 block_hash = mmh3.hash64(data[(i*sizeBlock):((i+1)*sizeBlock)]) 
-                #self.col_fam.insert(path, {str(i+nbBlock): str(block_hash)})
-                nodeCache[str(i+nbBlock)] = str(block_hash)
+                self.col_fam.insert(path, {str(i+nbBlock): str(block_hash)})
                 futures.append(pool.submit(write, (block_hash, i)))
                 i = i+1
-            wait(futures)
+            #wait(futures)
 
             if(lenData > nbNewBlocks * sizeBlock): #examine if need to insert a non-complete block
                 block_hash = mmh3.hash64(data[(nbNewBlocks*sizeBlock):])
-                #self.col_fam.insert(path, {str(nbNewBlocks+nbBlock): str(block_hash)})
-                nodeCache[nbNewBlocks+nbBlock] = str(block_hash) 
+                self.col_fam.insert(path, {str(nbNewBlocks+nbBlock): str(block_hash)})
                 self.col_fam.insert(str(block_hash), {"content": data[(nbNewBlocks*sizeBlock):]})
                 #print("Write### HashCode"+ str(block_hash))
 
         else:   #when block is "old"
-            #tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
-            tmp = self.col_fam.get(nodeCache[str(nbBlock)], columns=['content'])['content']
+            hash_code = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+            tmp = self.col_fam.get(hash_code, columns = ['content'])['content']
             block_hash = mmh3.hash64(tmp+data[:rest])
-            #self.col_fam.insert(path, {str(nbBlock): str(block_hash)})
-            nodeCache[str(nbBlock)] = str(block_hash)
+            self.col_fam.insert(path, {str(nbBlock): str(block_hash)})
             self.col_fam.insert(str(block_hash), {"content": tmp+data[:rest]})
             #print("Write### HashCode"+ str(block_hash))
             i = 0
             while(i < nbNewBlocks):
                 block_hash = mmh3.hash64(data[(i*sizeBlock):((i+1)*sizeBlock)]) 
-                #self.col_fam.insert(path, {str(i+nbBlock): str(block_hash)})
-                nodeCache[str(i+nbBlock)] = str(block_hash)
+                self.col_fam.insert(path, {str(i+nbBlock): str(block_hash)})
                 futures.append(pool.submit(write, (block_hash, i)))
                 i = i+1
-            wait(futures)
+            #wait(futures)
             if(lenData > rest + nbNewBlocks*sizeBlock):
                 block_hash = mmh3.hash64(data[(rest+nbNewBlocks*sizeBlock):])
-                #self.col_fam.insert(path, {str(nbNewBlocks+nbBlock+1): str(block_hash)})
-                nodeCache[str(nbNewBlocks+nbBlock+1)] = str(block_hash)
+                self.col_fam.insert(path, {str(nbNewBlocks+nbBlock+1): str(block_hash)})
                 self.col_fam.insert(str(block_hash), {"content": data[(rest+nbNewBlocks*sizeBlock):]})
                 #print("Write### HashCode"+ str(block_hash))
                 
-
+        end = time()
+        print("************* Time: " + str(end-start))
         #cassandra
         #self.col_fam.insert(path, {"content": self.data[path]})
         self.col_fam.insert("files", {"metadata": json.dumps(self.files)})
-        self.col_fam.insert(path, {"node": json.dumps(nodeCache)})
+        wait(futures)
         return len(data)
 
 
@@ -332,5 +314,4 @@ if __name__ == '__main__':
         exit(1)
 
     #logging.basicConfig(level=logging.DEBUG)
-    logging.basicConfig()
     fuse = FUSE(Cassandra(), argv[1], foreground=True)
