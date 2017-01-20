@@ -296,7 +296,8 @@ class Cassandra(LoggingMixIn, Operations):
                 #print("Write### HashCode"+ str(block_hash))
 
         else:   #when block is "old"
-            tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+            #tmp = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+            tmp = self.col_fam.get(nodeCache[str(nbBlock)], columns=['content'])['content']
             block_hash = mmh3.hash64(tmp+data[:rest])
             #self.col_fam.insert(path, {str(nbBlock): str(block_hash)})
             nodeCache[str(nbBlock)] = str(block_hash)
