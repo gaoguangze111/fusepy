@@ -11,9 +11,13 @@ import pycassa
 #persistent files (metadata) 
 import json
 import mmh3
+import pickle
+
+
 #parallel the programme
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed, wait
 from time import sleep
+
 
 
 from collections import defaultdict
@@ -28,19 +32,48 @@ from fuse import FUSE, FuseOSError, Operations, LoggingMixIn
 if not hasattr(__builtins__, 'bytes'):
     bytes = str
 
+def read_multi(block_hash, i):
+    col_fam = Cassandra.static_col_fam
+    #pool = pycassa.pool.ConnectionPool('TestKeySpace')
+    #col_fam = pycassa.columnfamily.ColumnFamily(pool, 'ColumnFamily')
+    #print("####### Read Process: "+str(i))
+    #block_hash = self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)]
+    s = col_fam.get(block_hash, columns = ["content"])["content"]
+    #print("####### end Read: "+ s + "  HahsCode:" + str(block_hash))
+    #return (i, col_fam.get(block_hash, columns = ["content"])["content"])
+    return (i, s)
+
+def write_multi(block_hash, content):
+    col_fam = Cassandra.static_col_fam
+    #pool = pycassa.pool.ConnectionPool('TestKeySpace')
+    #col_fam = pycassa.columnfamily.ColumnFamily(pool, 'ColumnFamily')
+    print("******* begin insert")
+    print("Content: "+content)
+    print("HashCode: "+str(block_hash))
+    col_fam.insert(str(block_hash), {'content': content})
+    print("****** end insert")
+    return "end "+ str(col_fam.get(str(block_hash)))
+    #return 8
+
+
+
 class Cassandra(LoggingMixIn, Operations):
     'Example memory filesystem. Supports only one level of files.'
-
+    static_pool = pycassa.pool.ConnectionPool('TestKeySpace')
+    static_col_fam = pycassa.columnfamily.ColumnFamily(static_pool, 'ColumnFamily')
     def __init__(self):
         self.files = {}
         self.data = defaultdict(bytes)
         self.fd = 0
-        self.sizeBlock = 1024*1024*2
+        self.sizeBlock = 4
         now = time()
 
         #initialize cassandra
-        self.pool = pycassa.pool.ConnectionPool('Keyspace1')
-        self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'ColumnFamily1')
+        Cassandra.pool = pycassa.pool.ConnectionPool('TestKeySpace')
+        Cassandra.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'ColumnFamily')
+        
+        self.pool = pycassa.pool.ConnectionPool('TestKeySpace')
+        self.col_fam = pycassa.columnfamily.ColumnFamily(self.pool, 'ColumnFamily')
         try:
             files_json = self.col_fam.get('files', columns=['metadata'])['metadata']
             self.files = json.loads(files_json)
@@ -96,10 +129,7 @@ class Cassandra(LoggingMixIn, Operations):
 
     def read(self, path, size, offset, fh):
 
-        def read(block_hash, i):
-            print("####### Read thread: "+str(i))
-            #block_hash = self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)]
-            return (i, self.col_fam.get(block_hash, columns = ["content"])["content"])
+        
 
         size = self.files[path]["st_size"]
         sizeBlock = self.sizeBlock
@@ -110,61 +140,66 @@ class Cassandra(LoggingMixIn, Operations):
             rest = 0
         nbNewBlocks = (lenData-rest)//sizeBlock
 
-
-        resultList = []
-        futures = []
-        pool = ProcessPoolExecutor(4)
+        result2 = ""
         
-        #fileData
-        fileData = self.col_fam.get(path)
+        
+        pool = ProcessPoolExecutor(4)
+        futures = []
+        resultList = []
 
+        #fileData
+        #fileData = self.col_fam.get(path)
+        #print("####### fileData" + str(fileData))
         if(rest == 0):
             i = 0
-            result2 = ""
             while(i < nbNewBlocks):
                 #Get the hashcode ----> get the content with hashcode!!
-                #block_hash = self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)]
-                block_hash = fileData[str(i+nbBlock)]
+                block_hash = self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)]
+                #block_hash = fileData[str(i+nbBlock)]
                 #result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
-                futures.append(pool.submit(read, (block_hash, i)))
+                futures.append(pool.submit(read_multi, block_hash, i))
                 i = i+1
 
             #Get results and combien results
+            wait(futures)
             for x in as_completed(futures):
-                resultList.append(x.result())
+                try:
+                    print("###### result " +str(x.result()))
+                    resultList.append(x.result())
+                except Exception as exc:
+                    print("exception ......."+ str(exc))
+
             resultList.sort(key= lambda resultItem: resultItem[0])
-            for x in resultList:
-                result2 = result2 + x[1]
+            for item in resultList:
+                result2 = result2 + item[1]
 
             if(lenData > nbNewBlocks * sizeBlock):
-                #block_hash = self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock)])[str(nbNewBlocks+nbBlock)]
-                block_hash = fileData[str(nbNewBlocks+nbBlock)]
+                block_hash = self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock)])[str(nbNewBlocks+nbBlock)]
+                #block_hash = fileData[str(nbNewBlocks+nbBlock)]
                 result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
         else:
 
-            #block_hash = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
-            block_hash = fileData[str(nbBlock)]
+            block_hash = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+            #block_hash = fileData[str(nbBlock)]
             tmp = self.col_fam.get(block_hash, columns = ["content"])["content"]
             result2 = tmp[-rest:]
             i = 0
             while(i < nbNewBlocks):
-                #block_hash = self.col_fam.get(path, columns = [str(i+nbBlock+1)])[str(i+nbBlock+1)]
+                block_hash = self.col_fam.get(path, columns = [str(i+nbBlock+1)])[str(i+nbBlock+1)]
                 #result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
-                block_hash = fileData[str(i+nbBlock+1)]
-                futures.append(pool.submit(read, (block_hash, i)))
+                #block_hash = fileData[str(i+nbBlock+1)]
+                futures.append(pool.submit(read_multi, block_hash, i))
                 i = i+1
             #Get results and combine results
             for x in as_completed(futures):
                 resultList.append(x.result())
             resultList.sort(key= lambda resultItem: resultItem[0])
-            for x in resultList:
-                result2 = result2 + x[1]
-
-
+            for item in resultList:
+                result2 = result2 + item[1]
 
             if(lenData > rest + nbNewBlocks*sizeBlock):
-                #block_hash = self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock+1)])[str(nbNewBlocks+nbBlock+1)]
-                block_hash = fileData[str(nbNewBlocks+nbBlock)]
+                block_hash = self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock+1)])[str(nbNewBlocks+nbBlock+1)]
+                #block_hash = fileData[str(nbNewBlocks+nbBlock+1)]
                 result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
                         
 
@@ -233,9 +268,7 @@ class Cassandra(LoggingMixIn, Operations):
 
     def write(self, path, data, offset, fh):
         #function to multi threads
-        def write(block_hash, i):
-            self.col_fam.insert(str(block_hash), {"content": data[(i*sizeBlock):((i+1)*sizeBlock)]})
-            print("#####Write Thread:"+str(i))
+        
 
 
 
@@ -257,26 +290,35 @@ class Cassandra(LoggingMixIn, Operations):
             rest = 0
         #Get how many blokcs needed to insert    
         nbNewBlocks = (lenData-rest)//sizeBlock
-
+        
+        #tmp_col = self.col_fam
+        #col_fam_string = pickle.dumps(tmp_col)
         #multithread pool
         pool = ProcessPoolExecutor(4)
         futures = []
 
         start = time();
+        print("####### Rest: "+ str(rest)+" LenthData:"+ str(lenData) + " offeset:"+str(offset)+"  nbNewblock"+str(nbNewBlocks))
         if(rest == 0):  
         # Get the block---> Generate the HashCode--->Save HashCode---->Save content
             i = 0
+            print("###### i: "+ str(i) + "   nbNewBlocks: "+ str(nbNewBlocks))
             while(i < nbNewBlocks):          #paralle
-                block_hash = mmh3.hash64(data[(i*sizeBlock):((i+1)*sizeBlock)]) 
+                content =data[(i*sizeBlock):((i+1)*sizeBlock)]
+                block_hash = mmh3.hash64(content) 
                 self.col_fam.insert(path, {str(i+nbBlock): str(block_hash)})
-                futures.append(pool.submit(write, (block_hash, i)))
+
+                print("######### " +str(i) +" submit begin!!!")
+                futures.append(pool.submit(write_multi, block_hash, content))
+                print("######### " +str(i) +" submit end!!!")
                 i = i+1
             #wait(futures)
 
             if(lenData > nbNewBlocks * sizeBlock): #examine if need to insert a non-complete block
-                block_hash = mmh3.hash64(data[(nbNewBlocks*sizeBlock):])
+                content = data[(nbNewBlocks*sizeBlock):]
+                block_hash = mmh3.hash64(content)
                 self.col_fam.insert(path, {str(nbNewBlocks+nbBlock): str(block_hash)})
-                self.col_fam.insert(str(block_hash), {"content": data[(nbNewBlocks*sizeBlock):]})
+                self.col_fam.insert(str(block_hash), {"content": content})
                 #print("Write### HashCode"+ str(block_hash))
 
         else:   #when block is "old"
@@ -288,9 +330,14 @@ class Cassandra(LoggingMixIn, Operations):
             #print("Write### HashCode"+ str(block_hash))
             i = 0
             while(i < nbNewBlocks):
-                block_hash = mmh3.hash64(data[(i*sizeBlock):((i+1)*sizeBlock)]) 
-                self.col_fam.insert(path, {str(i+nbBlock): str(block_hash)})
-                futures.append(pool.submit(write, (block_hash, i)))
+                content = data[(rest+i*sizeBlock):(rest+(i+1)*sizeBlock)]
+                block_hash = mmh3.hash64(content) 
+                self.col_fam.insert(path, {str(i+nbBlock+1): str(block_hash)})
+
+                #content = data[(i*sizeBlock):((i+1)*sizeBlock)]
+                print("######### " +str(i+1) +" submit begin!!!")
+                futures.append(pool.submit(write_multi, block_hash, content))
+                print("######### " +str(i+1) +" submit end!!!")
                 i = i+1
             #wait(futures)
             if(lenData > rest + nbNewBlocks*sizeBlock):
@@ -305,6 +352,14 @@ class Cassandra(LoggingMixIn, Operations):
         #self.col_fam.insert(path, {"content": self.data[path]})
         self.col_fam.insert("files", {"metadata": json.dumps(self.files)})
         wait(futures)
+        m = ""
+        for future in as_completed(futures):
+            try:
+                print("#### result " +future.result())
+            except Exception as exc:
+                print("exception ......."+ str(exc))
+
+        #print(str(donnee))
         return len(data)
 
 
