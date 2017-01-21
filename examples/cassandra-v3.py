@@ -58,8 +58,10 @@ def write_multi(block_hash, content):
             #print("******* begin insert")
             #print("Content: "+content)
             #print("HashCode: "+str(block_hash))
+            #print("######################### write_multi begin: "+ content);
             col_fam.insert(str(block_hash), {'content': content})
             #print("****** end insert")
+            #print("######################### write_multi: "+ content);
             return "end "+ str(col_fam.get(str(block_hash)))
         except Exception as exc:
             pass
@@ -149,7 +151,10 @@ class Cassandra(LoggingMixIn, Operations):
         rest = sizeBlock - offset % sizeBlock
         if (rest == sizeBlock):
             rest = 0
-        nbNewBlocks = (lenData-rest)//sizeBlock
+        if(lenData-rest > 0):
+            nbNewBlocks = (lenData-rest)//sizeBlock
+        else:
+            nbNewBlocks=0
 
         result2 = ""
         
@@ -161,6 +166,7 @@ class Cassandra(LoggingMixIn, Operations):
         #fileData
         #fileData = self.col_fam.get(path)
         #print("####### fileData" + str(fileData))
+        #print("**************NIUBI####### Rest: "+ str(rest)+" LenthData:"+ str(lenData) + " offeset:"+str(offset)+"  nbNewblock: "+str(nbNewBlocks)+ "  nbBlock: "+str(nbBlock))
         if(rest == 0):
             i = 0
             while(i < nbNewBlocks):
@@ -186,15 +192,29 @@ class Cassandra(LoggingMixIn, Operations):
                 result2 = result2 + item[1]
 
             if(lenData > nbNewBlocks * sizeBlock):
+                last_size = lenData - nbNewBlocks*sizeBlock
+                last_start = offset - (nbNewBlocks+nbBlock)*sizeBlock
                 block_hash = self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock)])[str(nbNewBlocks+nbBlock)]
-                #block_hash = fileData[str(nbNewBlocks+nbBlock)]
-                result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
+                if(nbNewBlocks == 0):
+                    result2 = self.col_fam.get(block_hash, columns = ["content"])["content"][last_start:(last_start+last_size)]
+                    #print("XXXXXXXXZX last_start: "+str(last_start) + "   last_size: "+str(last_size))
+                    #print("XXXXXXXXXXXXXXXXX result2: "+ result2)
+                else:
+                    #block_hash = fileData[str(nbNewBlocks+nbBlock)]
+                    result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"][:last_size]
+            #print("************ result2 size: (1)"+str(len(result2)) + "   size: "+ str(size));
         else:
-
-            block_hash = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
-            #block_hash = fileData[str(nbBlock)]
-            tmp = self.col_fam.get(block_hash, columns = ["content"])["content"]
-            result2 = tmp[-rest:]
+            if(nbNewBlocks!=0):
+                block_hash = self.col_fam.get(path, columns=[str(nbBlock)])[str(nbBlock)]
+                #block_hash = fileData[str(nbBlock)]
+                tmp = self.col_fam.get(block_hash, columns = ["content"])["content"]
+                result2 = tmp[-rest:]
+            else:
+                last_size = lenData - nbNewBlocks*sizeBlock
+                last_start = offset - (nbNewBlocks+nbBlock)*sizeBlock
+                block_hash = self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock)])[str(nbNewBlocks+nbBlock)]
+                result2 = self.col_fam.get(block_hash, columns = ["content"])["content"][last_start:(last_start+last_size)]
+                return result2
             i = 0
             while(i < nbNewBlocks):
                 block_hash = self.col_fam.get(path, columns = [str(i+nbBlock+1)])[str(i+nbBlock+1)]
@@ -210,11 +230,16 @@ class Cassandra(LoggingMixIn, Operations):
                 result2 = result2 + item[1]
 
             if(lenData > rest + nbNewBlocks*sizeBlock):
+                last_size = lenData - nbNewBlocks*sizeBlock - rest
+                #last_start = offset - nbNewBlocks*sizeBlock
                 block_hash = self.col_fam.get(path, columns = [str(nbNewBlocks+nbBlock+1)])[str(nbNewBlocks+nbBlock+1)]
                 #block_hash = fileData[str(nbNewBlocks+nbBlock+1)]
-                result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"]
-                        
+                result2 = result2 + self.col_fam.get(block_hash, columns = ["content"])["content"][:last_size]
 
+            #print("************ result2 size: (2)"+str(len(result2)) + "   size: "+ str(size));
+                        
+        #print("********** result: " + result2);
+        
         return result2
 
     def readdir(self, path, fh):
@@ -300,9 +325,11 @@ class Cassandra(LoggingMixIn, Operations):
         rest = sizeBlock - offset % sizeBlock
         if (rest == sizeBlock):
             rest = 0
-        #Get how many blokcs needed to insert    
-        nbNewBlocks = (lenData-rest)//sizeBlock
-        
+        #Get how many blokcs needed to insert
+        if(lenData-rest>0):    
+            nbNewBlocks = (lenData-rest)//sizeBlock
+        else:
+            nbNewBlocks = 0
         #tmp_col = self.col_fam
         #col_fam_string = pickle.dumps(tmp_col)
         #multithread pool
@@ -310,27 +337,30 @@ class Cassandra(LoggingMixIn, Operations):
         futures = []
 
         #start = time();
-        #print("####### Rest: "+ str(rest)+" LenthData:"+ str(lenData) + " offeset:"+str(offset)+"  nbNewblock"+str(nbNewBlocks))
+        #print("**************NIUBI####### Rest: "+ str(rest)+" LenthData:"+ str(lenData) + " offeset:"+str(offset)+"  nbNewblock: "+str(nbNewBlocks)+ "  nbBlock: "+str(nbBlock))
+        
+
         if(rest == 0):  
         # Get the block---> Generate the HashCode--->Save HashCode---->Save content
             i = 0
             #print("###### i: "+ str(i) + "   nbNewBlocks: "+ str(nbNewBlocks))
             while(i < nbNewBlocks):          #paralle
-                content =data[(i*sizeBlock):((i+1)*sizeBlock)]
-                block_hash = mmh3.hash64(content) 
+                content_1 =data[(i*sizeBlock):((i+1)*sizeBlock)]
+                block_hash = mmh3.hash64(content_1) 
                 self.col_fam.insert(path, {str(i+nbBlock): str(block_hash)})
 
                 #print("######### " +str(i) +" submit begin!!!")
-                futures.append(pool.submit(write_multi, block_hash, content))
+                futures.append(pool.submit(write_multi, block_hash, content_1))
                 #print("######### " +str(i) +" submit end!!!")
                 i = i+1
             #wait(futures)
 
             if(lenData > nbNewBlocks * sizeBlock): #examine if need to insert a non-complete block
-                content = data[(nbNewBlocks*sizeBlock):]
-                block_hash = mmh3.hash64(content)
+                content_2 = data[(nbNewBlocks*sizeBlock):]
+                block_hash = mmh3.hash64(content_2)
                 self.col_fam.insert(path, {str(nbNewBlocks+nbBlock): str(block_hash)})
-                self.col_fam.insert(str(block_hash), {"content": content})
+                self.col_fam.insert(str(block_hash), {"content": content_2})
+                #print("############### Write (rest==0):  " +content_2)
                 #print("Write### HashCode"+ str(block_hash))
 
         else:   #when block is "old"
@@ -339,16 +369,17 @@ class Cassandra(LoggingMixIn, Operations):
             block_hash = mmh3.hash64(tmp+data[:rest])
             self.col_fam.insert(path, {str(nbBlock): str(block_hash)})
             self.col_fam.insert(str(block_hash), {"content": tmp+data[:rest]})
+            #print("############### Write (rest!=0):  "+ tmp+data[:rest] + "  Hash:"+ str(block_hash))
             #print("Write### HashCode"+ str(block_hash))
             i = 0
             while(i < nbNewBlocks):
-                content = data[(rest+i*sizeBlock):(rest+(i+1)*sizeBlock)]
-                block_hash = mmh3.hash64(content) 
+                content_3 = data[(rest+i*sizeBlock):(rest+(i+1)*sizeBlock)]
+                block_hash = mmh3.hash64(content_3) 
                 self.col_fam.insert(path, {str(i+nbBlock+1): str(block_hash)})
 
                 #content = data[(i*sizeBlock):((i+1)*sizeBlock)]
                 #print("######### " +str(i+1) +" submit begin!!!")
-                futures.append(pool.submit(write_multi, block_hash, content))
+                futures.append(pool.submit(write_multi, block_hash, content_3))
                 #print("######### " +str(i+1) +" submit end!!!")
                 i = i+1
             #wait(futures)
@@ -356,6 +387,7 @@ class Cassandra(LoggingMixIn, Operations):
                 block_hash = mmh3.hash64(data[(rest+nbNewBlocks*sizeBlock):])
                 self.col_fam.insert(path, {str(nbNewBlocks+nbBlock+1): str(block_hash)})
                 self.col_fam.insert(str(block_hash), {"content": data[(rest+nbNewBlocks*sizeBlock):]})
+                #print("############### Write(3) "+ data[(rest+nbNewBlocks*sizeBlock):]+ "  Hash:"+ str(block_hash))
                 #print("Write### HashCode"+ str(block_hash))
                 
         #end = time()
