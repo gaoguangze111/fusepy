@@ -45,7 +45,8 @@ def read_multi(block_hash, i):
     #return (i, col_fam.get(block_hash, columns = ["content"])["content"])
             return (i, s)
         except Exception as exc:
-            print("##############Read_multi exception ......."+ str(exc)+"  i: "+str(i))
+            pass
+            #print("##############Read_multi exception ......."+ str(exc)+"  i: "+str(i))
 
 def write_multi(block_hash, content):
 
@@ -61,7 +62,8 @@ def write_multi(block_hash, content):
             #print("****** end insert")
             return "end "+ str(col_fam.get(str(block_hash)))
         except Exception as exc:
-            print("##############Read_multi exception ......."+ str(exc)+"  i: "+str(i))
+            pass
+            #print("##############Read_multi exception ......."+ str(exc)+"  i: "+str(i))
 
 
 class Cassandra(LoggingMixIn, Operations):
@@ -72,7 +74,7 @@ class Cassandra(LoggingMixIn, Operations):
         self.files = {}
         self.data = defaultdict(bytes)
         self.fd = 0
-        self.sizeBlock = 4
+        self.sizeBlock = 1024*20
         now = time()
 
         #initialize cassandra
@@ -173,10 +175,11 @@ class Cassandra(LoggingMixIn, Operations):
             #wait(futures)
             for x in as_completed(futures):
                 try:
-                    print("###### result " +str(x.result()))
+                    #print("###### result " +str(x.result()))
                     resultList.append(x.result())
                 except Exception as exc:
-                    print("exception ......."+ str(exc)+"  x:"+str(x))
+                    pass
+                    #print("exception ......."+ str(exc)+"  x:"+str(x))
 
             resultList.sort(key= lambda resultItem: resultItem[0])
             for item in resultList:
@@ -306,20 +309,20 @@ class Cassandra(LoggingMixIn, Operations):
         pool = ProcessPoolExecutor(4)
         futures = []
 
-        start = time();
-        print("####### Rest: "+ str(rest)+" LenthData:"+ str(lenData) + " offeset:"+str(offset)+"  nbNewblock"+str(nbNewBlocks))
+        #start = time();
+        #print("####### Rest: "+ str(rest)+" LenthData:"+ str(lenData) + " offeset:"+str(offset)+"  nbNewblock"+str(nbNewBlocks))
         if(rest == 0):  
         # Get the block---> Generate the HashCode--->Save HashCode---->Save content
             i = 0
-            print("###### i: "+ str(i) + "   nbNewBlocks: "+ str(nbNewBlocks))
+            #print("###### i: "+ str(i) + "   nbNewBlocks: "+ str(nbNewBlocks))
             while(i < nbNewBlocks):          #paralle
                 content =data[(i*sizeBlock):((i+1)*sizeBlock)]
                 block_hash = mmh3.hash64(content) 
                 self.col_fam.insert(path, {str(i+nbBlock): str(block_hash)})
 
-                print("######### " +str(i) +" submit begin!!!")
+                #print("######### " +str(i) +" submit begin!!!")
                 futures.append(pool.submit(write_multi, block_hash, content))
-                print("######### " +str(i) +" submit end!!!")
+                #print("######### " +str(i) +" submit end!!!")
                 i = i+1
             #wait(futures)
 
@@ -344,9 +347,9 @@ class Cassandra(LoggingMixIn, Operations):
                 self.col_fam.insert(path, {str(i+nbBlock+1): str(block_hash)})
 
                 #content = data[(i*sizeBlock):((i+1)*sizeBlock)]
-                print("######### " +str(i+1) +" submit begin!!!")
+                #print("######### " +str(i+1) +" submit begin!!!")
                 futures.append(pool.submit(write_multi, block_hash, content))
-                print("######### " +str(i+1) +" submit end!!!")
+                #print("######### " +str(i+1) +" submit end!!!")
                 i = i+1
             #wait(futures)
             if(lenData > rest + nbNewBlocks*sizeBlock):
@@ -355,17 +358,18 @@ class Cassandra(LoggingMixIn, Operations):
                 self.col_fam.insert(str(block_hash), {"content": data[(rest+nbNewBlocks*sizeBlock):]})
                 #print("Write### HashCode"+ str(block_hash))
                 
-        end = time()
-        print("************* Time: " + str(end-start))
+        #end = time()
+        #print("************* Time: " + str(end-start))
         #cassandra
         #self.col_fam.insert(path, {"content": self.data[path]})
         self.col_fam.insert("files", {"metadata": json.dumps(self.files)})
-        #wait(futures)
-        for future in as_completed(futures):
+        wait(futures)
+        '''for future in as_completed(futures):
             try:
                 print("#### result " +future.result())
             except Exception as exc:
                 print("exception ......."+ str(exc))
+        '''
 
         #print(str(donnee))
         return len(data)
