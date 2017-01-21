@@ -33,28 +33,35 @@ if not hasattr(__builtins__, 'bytes'):
     bytes = str
 
 def read_multi(block_hash, i):
-    col_fam = Cassandra.static_col_fam
+    while(True):
+        try:
+            col_fam = Cassandra.static_col_fam
     #pool = pycassa.pool.ConnectionPool('TestKeySpace')
     #col_fam = pycassa.columnfamily.ColumnFamily(pool, 'ColumnFamily')
     #print("####### Read Process: "+str(i))
     #block_hash = self.col_fam.get(path, columns = [str(i+nbBlock)])[str(i+nbBlock)]
-    s = col_fam.get(block_hash, columns = ["content"])["content"]
+            s = col_fam.get(block_hash, columns = ["content"])["content"]
     #print("####### end Read: "+ s + "  HahsCode:" + str(block_hash))
     #return (i, col_fam.get(block_hash, columns = ["content"])["content"])
-    return (i, s)
+            return (i, s)
+        except Exception as exc:
+            print("##############Read_multi exception ......."+ str(exc)+"  i: "+str(i))
 
 def write_multi(block_hash, content):
-    col_fam = Cassandra.static_col_fam
-    #pool = pycassa.pool.ConnectionPool('TestKeySpace')
-    #col_fam = pycassa.columnfamily.ColumnFamily(pool, 'ColumnFamily')
-    print("******* begin insert")
-    print("Content: "+content)
-    print("HashCode: "+str(block_hash))
-    col_fam.insert(str(block_hash), {'content': content})
-    print("****** end insert")
-    return "end "+ str(col_fam.get(str(block_hash)))
-    #return 8
 
+    while(True):
+        try:
+            col_fam = Cassandra.static_col_fam
+            #pool = pycassa.pool.ConnectionPool('TestKeySpace')
+            #col_fam = pycassa.columnfamily.ColumnFamily(pool, 'ColumnFamily')
+            #print("******* begin insert")
+            #print("Content: "+content)
+            #print("HashCode: "+str(block_hash))
+            col_fam.insert(str(block_hash), {'content': content})
+            #print("****** end insert")
+            return "end "+ str(col_fam.get(str(block_hash)))
+        except Exception as exc:
+            print("##############Read_multi exception ......."+ str(exc)+"  i: "+str(i))
 
 
 class Cassandra(LoggingMixIn, Operations):
@@ -129,9 +136,11 @@ class Cassandra(LoggingMixIn, Operations):
 
     def read(self, path, size, offset, fh):
 
-        
 
-        size = self.files[path]["st_size"]
+        if(size > self.files[path]["st_size"]-offset ):
+            size = self.files[path]["st_size"]-offset
+        #size = self.files[path]["st_size"]
+        
         sizeBlock = self.sizeBlock
         nbBlock = offset // sizeBlock
         lenData = size
@@ -161,13 +170,13 @@ class Cassandra(LoggingMixIn, Operations):
                 i = i+1
 
             #Get results and combien results
-            wait(futures)
+            #wait(futures)
             for x in as_completed(futures):
                 try:
                     print("###### result " +str(x.result()))
                     resultList.append(x.result())
                 except Exception as exc:
-                    print("exception ......."+ str(exc))
+                    print("exception ......."+ str(exc)+"  x:"+str(x))
 
             resultList.sort(key= lambda resultItem: resultItem[0])
             for item in resultList:
@@ -351,8 +360,7 @@ class Cassandra(LoggingMixIn, Operations):
         #cassandra
         #self.col_fam.insert(path, {"content": self.data[path]})
         self.col_fam.insert("files", {"metadata": json.dumps(self.files)})
-        wait(futures)
-        m = ""
+        #wait(futures)
         for future in as_completed(futures):
             try:
                 print("#### result " +future.result())
